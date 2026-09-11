@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Downlynk — Paste a link, pull the file</title>
+  <meta name="description"
+    content="Paste a video link from YouTube, Instagram, TikTok, X, or Facebook. Downlynk reads the source, lists every quality, and streams the download straight to your device." />
+  <link rel="icon" type="image/png" href="/images/downlynk.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet" />
+  <link href="/css/styles.css" rel="stylesheet" />
+</head>
+
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/">
+        <img src="/images/downlynk.png" class="brand-logo" alt="Downlynk">
+
+      </a>
+
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to light mode"
+        aria-pressed="false">
+        <i class="bi bi-moon-stars" aria-hidden="true"></i>
+        <i class="bi bi-sun" aria-hidden="true"></i>
+        <span class="theme-toggle-knob"></span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero shell">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="eyebrow-dot"></span>100% free · every platform</p>
+        <h1 class="hero-title">Paste a link.<br />Get your video<span class="accent">.</span></h1>
+        <p class="hero-subtitle">
+          Drop in a URL from YouTube, Instagram, TikTok, X, or Facebook. We read the source, list every
+          available quality, and stream the download straight to your device — no installs, no watermarks.
+        </p>
+
+        <ul class="platform-strip" aria-label="Supported sources">
+          <li><i class="bi bi-youtube"></i>YouTube</li>
+          <li><i class="bi bi-instagram"></i>Instagram</li>
+          <li><i class="bi bi-tiktok"></i>TikTok</li>
+          <li><i class="bi bi-twitter-x"></i>X</li>
+          <li><i class="bi bi-facebook"></i>Facebook</li>
+        </ul>
+
+        <div id="urlDropzone" class="intake">
+          <div class="intake-row">
+            <div class="intake-dots" aria-hidden="true">
+              <span class="intake-dot r"></span><span class="intake-dot y"></span><span class="intake-dot g"></span>
+            </div>
+            <input id="urlInput" class="intake-input" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+              placeholder="Paste video URL here — e.g. https://youtube.com/watch?v=..." aria-label="Media URL" />
+            <button id="pasteButton" class="btn btn-ghost" type="button">
+              <i class="bi bi-clipboard"></i><span>Paste</span>
+            </button>
+            <button id="analyzeButton" class="btn btn-fetch" type="button">
+              <i class="bi bi-lightning-charge-fill"></i><span>Fetch Video</span>
+            </button>
+          </div>
+          <p id="dropHint" class="drop-hint"><i class="bi bi-arrow-down-circle"></i>Release to drop the link</p>
+        </div>
+
+        <div class="paste-hint">Works instantly with <kbd>Ctrl</kbd>+<kbd>V</kbd> or drag a link straight in.</div>
+
+        <div id="detectRow" class="detect-row" aria-live="polite">
+          <span id="detectBadge" class="detect-badge is-idle">
+            <i id="detectIcon" class="bi bi-dot"></i>
+            <span id="detectLabel">Waiting for a link</span>
+          </span>
+        </div>
+
+        <div id="scanIndicator" class="scan-indicator d-none" aria-live="polite">
+          <span class="scan-bars" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </span>
+          <span class="scan-text">Reading source…</span>
+        </div>
+
+        <ul class="trust-row">
+          <li><i class="bi bi-lightning-charge"></i>Lightning fast</li>
+          <li><i class="bi bi-shield-check"></i>No sign-up</li>
+          <li><i class="bi bi-badge-hd"></i>Up to 4K &amp; audio</li>
+          <li><i class="bi bi-incognito"></i>Safe &amp; ad-free</li>
+        </ul>
+      </div>
+
+      <div class="hero-panel">
+        <div id="previewCard" class="video-card d-none">
+          <div class="video-thumb">
+            <img id="mediaThumbnail" class="preview-image" src="/images/placeholder.svg" alt="Media preview" />
+            <span id="qualityBadge" class="quality-badge">HD</span>
+            <span id="durationBadge" class="duration-badge">00:00</span>
+            <span class="play-btn" aria-hidden="true"><i class="bi bi-play-fill"></i></span>
+          </div>
+
+          <div class="video-meta">
+            <div id="channelAvatar" class="channel-avatar"></div>
+            <div class="video-meta-text">
+              <div id="mediaTitle" class="video-title">Media title</div>
+              <div id="mediaSub" class="video-sub">Uploader · views</div>
+            </div>
+          </div>
+
+          <div class="quality-head">
+            <span>Available qualities</span>
+            <span id="qualityNote" class="quality-note">Select a quality</span>
+          </div>
+          <div id="qualitiesList" class="format-row"></div>
+
+          <div class="download-block">
+            <div class="meter" role="progressbar" aria-label="Download progress" aria-valuemin="0" aria-valuemax="100">
+              <div id="downloadProgressBar" class="meter-fill" style="width: 0%"></div>
+            </div>
+            <p id="downloadProgressText" class="meter-text">Ready to stream</p>
+            <button id="downloadButton" class="btn-download">
+              <i class="bi bi-cloud-arrow-down-fill"></i><span>Download Now</span>
+            </button>
+            <p class="secure-line">Scanned &amp; secure · no ads, no redirects</p>
+          </div>
+        </div>
+
+        <div id="previewEmpty" class="video-card preview-empty">
+          <div class="empty-rings" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <i class="bi bi-film" aria-hidden="true"></i>
+          <p>Your media preview lands here the moment we finish scanning a link.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer-strip">
+    <div class="shell footer-inner">
+      <span class="footer-brand">Downlynk</span>
+      <span>Only download media you own or have permission to use — for personal, non-infringing use only.</span>
+      <nav>
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+        <a href="#">Contact</a>
+      </nav>
+    </div>
+  </footer>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+
+</html>

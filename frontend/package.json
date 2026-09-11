@@ -1,0 +1,13 @@
+{
+  "name": "downlynk-frontend",
+  "version": "1.0.0",
+  "description": "Downlynk standalone frontend web UI",
+  "scripts": {
+    "dev": "http-server -p 8080",
+    "start": "http-server -p 8080",
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+}

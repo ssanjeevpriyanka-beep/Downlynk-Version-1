@@ -1,0 +1,26 @@
+{
+  "name": "downlynk",
+  "version": "1.0.0",
+  "description": "Downlynk — paste a link, pull the file. A modern tool for secure link analysis and streaming downloads",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "media",
+    "downloader",
+    "express",
+    "yt-dlp"
+  ],
+  "author": "Downlynk",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.1",
+    "morgan": "^1.10.1"
+  }
+}
