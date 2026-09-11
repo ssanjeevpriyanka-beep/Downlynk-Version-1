@@ -295,6 +295,15 @@ html[data-theme='light'] .theme-toggle-knob { transform: translateX(calc(3.4rem 
   display: flex; justify-content: space-between; align-items: center;
   font-size: 0.82rem; font-weight: 600; margin: 16px 0 8px; border-top: 1px solid var(--border); padding-top: 14px;
 }
+.download-type-head { font-size: 0.82rem; font-weight: 600; margin: 16px 0 8px; }
+.download-type-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.type-chip {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px;
+  background: transparent; color: var(--muted); cursor: pointer; font-weight: 600;
+}
+.type-chip:hover { border-color: var(--border-strong); color: var(--text); }
+.type-chip.active { background: var(--coral-soft); border-color: color-mix(in srgb, var(--coral) 55%, var(--border)); color: var(--text); }
 .quality-note { font-weight: 400; color: var(--muted-faint); font-size: 0.76rem; font-family: 'JetBrains Mono', monospace; }
 
 .format-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
@@ -312,6 +321,7 @@ html[data-theme='light'] .theme-toggle-knob { transform: translateX(calc(3.4rem 
 .meter { height: 0.45rem; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
 .meter-fill { height: 100%; background: linear-gradient(90deg, var(--coral), var(--mint)); transition: width 320ms ease; }
 .meter-text { margin: 0.45rem 0 0.9rem; font-size: 0.78rem; color: var(--muted-faint); font-family: 'JetBrains Mono', monospace; }
+.download-progress-details { margin: -0.55rem 0 0.9rem; font-size: 0.74rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
 
 .btn-download {
   width: 100%; background: var(--mint); border: none; color: var(--mint-ink);
@@ -322,6 +332,13 @@ html[data-theme='light'] .theme-toggle-knob { transform: translateX(calc(3.4rem 
 }
 .btn-download:hover { transform: translateY(-2px); background: var(--mint-dim); }
 .btn-download:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.btn-cancel {
+  width: 100%; background: transparent; border: 1px solid var(--danger); color: var(--danger);
+  font-weight: 700; font-size: 0.92rem; padding: 13px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer;
+}
+.btn-cancel:hover { background: var(--danger-soft); }
 
 .secure-line { text-align: center; font-size: 0.72rem; color: var(--muted-faint); margin: 10px 0 0; }
 

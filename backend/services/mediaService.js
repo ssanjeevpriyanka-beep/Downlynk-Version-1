@@ -8,8 +8,87 @@ const { sanitizeText, createSafeFilename } = require('../utils/url');
 
 const tempDirectory =
   process.env.TEMP_DIR || join(__dirname, '..', 'temp');
+const downloadJobs = new Map();
 
 ensureDirectory(tempDirectory);
+
+function getDownloadJob(requestId) {
+  const key = String(requestId);
+  let job = downloadJobs.get(key);
+  if (!job) {
+    job = { listeners: new Set(), child: null, cancelled: false, lastProgress: null };
+    downloadJobs.set(key, job);
+  }
+  return job;
+}
+
+function publishDownloadProgress(requestId, progress) {
+  const job = getDownloadJob(requestId);
+  job.lastProgress = progress;
+  job.listeners.forEach((listener) => listener(progress));
+}
+
+function subscribeDownloadProgress(requestId, listener) {
+  const job = getDownloadJob(requestId);
+  job.listeners.add(listener);
+  if (job.lastProgress) listener(job.lastProgress);
+  return () => job.listeners.delete(listener);
+}
+
+function cancelDownload(requestId) {
+  const job = downloadJobs.get(String(requestId));
+  if (!job) return false;
+  job.cancelled = true;
+  if (job.child && !job.child.killed) {
+    job.child.kill();
+  }
+  publishDownloadProgress(requestId, { status: 'cancelled', message: 'Download cancelled.' });
+  return true;
+}
+
+function removeDownloadJob(requestId) {
+  setTimeout(() => downloadJobs.delete(String(requestId)), 30000);
+}
+
+function parseProgress(line) {
+  const match = line.match(/\[download\]\s+([\d.]+)%.*?of\s+(?:~\s*)?([\d.]+\s*[KMGTP]?i?B)?(?:\s+at\s+([\d.]+\s*[KMGTP]?i?B\/s))?(?:\s+ETA\s+(\S+))?/i);
+  if (!match) return null;
+
+  const percent = Math.min(100, Math.max(0, Number(match[1])));
+  const totalBytes = parseSize(match[2]);
+  const speedBytes = parseSize(match[3] && match[3].replace(/\/s$/i, ''));
+  return {
+    status: 'downloading',
+    percent,
+    downloadedBytes: totalBytes ? Math.round(totalBytes * percent / 100) : null,
+    totalBytes,
+    speedBytes,
+    etaSeconds: parseEta(match[4])
+  };
+}
+
+function parseSize(value) {
+  if (!value) return null;
+  const match = String(value).trim().match(/^([\d.]+)\s*([KMGTP]?i?B)?$/i);
+  if (!match) return null;
+  const units = { B: 1, KB: 1000, MB: 1000 ** 2, GB: 1000 ** 3, TB: 1000 ** 4,
+    KIB: 1024, MIB: 1024 ** 2, GIB: 1024 ** 3, TIB: 1024 ** 4 };
+  return Math.round(Number(match[1]) * (units[String(match[2] || 'B').toUpperCase()] || 1));
+}
+
+function parseEta(value) {
+  if (!value || value === 'Unknown') return null;
+  const parts = String(value).split(':').map(Number);
+  if (parts.some(Number.isNaN)) return null;
+  return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+async function cleanupDownloadFiles(prefix) {
+  const files = readdirSync(tempDirectory);
+  await Promise.all(files
+    .filter((file) => file.startsWith(prefix))
+    .map((file) => fsPromises.unlink(path.join(tempDirectory, file)).catch(() => {})));
+}
 
 /**
  * Find FFmpeg binary folder.
@@ -225,6 +304,17 @@ async function analyzeMediaService(url) {
           };
         });
 
+        const audioFormats = (info.formats || [])
+          .filter((f) => f.acodec && f.acodec !== 'none' && (!f.vcodec || f.vcodec === 'none'))
+          .map((f) => ({
+            id: String(f.format_id),
+            abr: Number(f.abr || f.tbr || 0),
+            ext: f.ext || 'm4a',
+            acodec: f.acodec
+          }))
+          .filter((format) => format.abr > 0)
+          .sort((a, b) => b.abr - a.abr);
+
         // Sort to prefer highest resolution, then highest actual pixels, then MP4 with H.264/AVC, then MP4, then audio
         mappedFormats.sort((a, b) => {
           if (b.stdHeight !== a.stdHeight) {
@@ -262,24 +352,6 @@ async function analyzeMediaService(url) {
         // Final sort UI from highest to lowest
         uniqueFormats.sort((a, b) => b.stdHeight - a.stdHeight);
 
-        if (uniqueFormats.length === 0) {
-          uniqueFormats.push({
-            id: 'best',
-            label: 'Best available',
-            resolution: 'Auto',
-            width: 0,
-            height: 0,
-            stdHeight: 0,
-            ext: 'mp4',
-            filesize: 0,
-            fps: null,
-            vcodec: null,
-            acodec: null,
-            hasAudio: false,
-            hasVideo: true
-          });
-        }
-
         resolve({
           success: true,
           info: {
@@ -291,6 +363,8 @@ async function analyzeMediaService(url) {
             view_count: Number(info.view_count || 0)
           },
           formats: uniqueFormats.slice(0, 20)
+          ,
+          audioFormats: audioFormats.slice(0, 20)
         });
       } catch (error) {
         console.error('yt-dlp JSON parse error:', error);
@@ -315,7 +389,8 @@ async function downloadMediaService({
   formatId,
   qualityLabel,
   requestId,
-  hasAudio
+  hasAudio,
+  type = 'video'
 }) {
   const ytDlpBinary = await getYtDlpBinary();
 
@@ -327,9 +402,7 @@ async function downloadMediaService({
     };
   }
 
-  const safeName = createSafeFilename(
-    qualityLabel || 'download'
-  );
+  const safeName = createSafeFilename(qualityLabel || 'download');
 
   const safeRequestId = String(requestId || Date.now())
     .replace(/[^a-zA-Z0-9_-]/g, '');
@@ -340,10 +413,17 @@ async function downloadMediaService({
   );
 
   let selectedFormat;
+  let audioQuality;
   const height = extractHeight(qualityLabel);
   const formatHasAudio = hasAudio || (formatId === '18' || formatId === '22');
 
-  if (formatId && formatId !== 'best') {
+  if (type === 'audio') {
+    audioQuality = String(qualityLabel || '').match(/^(\d{2,3})\s*kbps$/i);
+    if (!audioQuality) {
+      return { success: false, message: 'The selected audio quality is not supported.' };
+    }
+    selectedFormat = formatId && formatId !== 'best' ? `${formatId}/bestaudio` : 'bestaudio';
+  } else if (formatId && formatId !== 'best') {
     if (formatHasAudio) {
       selectedFormat = [
         formatId,
@@ -367,9 +447,6 @@ async function downloadMediaService({
     '--format',
     selectedFormat,
 
-    '--merge-output-format',
-    'mp4',
-
     '--output',
     outputTemplate,
 
@@ -389,6 +466,18 @@ async function downloadMediaService({
     '--extractor-args',
     'youtube:player_client=web_embedded,web,tv'
   ];
+
+  if (type === 'audio') {
+    args.push(
+      '--extract-audio',
+      '--audio-format',
+      'mp3',
+      '--audio-quality',
+      `${audioQuality[1]}K`
+    );
+  } else {
+    args.splice(2, 0, '--merge-output-format', 'mp4');
+  }
 
   const ffmpegDir = getFfmpegDirectory();
   if (ffmpegDir) {
@@ -411,6 +500,17 @@ async function downloadMediaService({
   return new Promise((resolve) => {
     let stderr = '';
     let stdout = '';
+    let progressBuffer = '';
+    const job = getDownloadJob(safeRequestId);
+    const handleOutput = (chunk) => {
+      progressBuffer += chunk.toString();
+      const lines = progressBuffer.split(/\r?\n/);
+      progressBuffer = lines.pop() || '';
+      lines.forEach((line) => {
+        const progress = parseProgress(line);
+        if (progress) publishDownloadProgress(safeRequestId, progress);
+      });
+    };
 
     const child = spawn(
       ytDlpBinary,
@@ -419,16 +519,22 @@ async function downloadMediaService({
         windowsHide: true
       }
     );
+    job.child = child;
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
+      handleOutput(chunk);
     });
 
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
+      handleOutput(chunk);
     });
 
     child.on('error', (error) => {
+      job.child = null;
+      cleanupDownloadFiles(`${safeName}-${safeRequestId}`);
+      removeDownloadJob(safeRequestId);
       resolve({
         success: false,
         message:
@@ -437,10 +543,18 @@ async function downloadMediaService({
     });
 
     child.on('close', async (code) => {
+      job.child = null;
       console.log('yt-dlp exit code:', code);
 
       if (code !== 0) {
         console.error('Download error:', stderr);
+        await cleanupDownloadFiles(`${safeName}-${safeRequestId}`);
+        if (job.cancelled) {
+          removeDownloadJob(safeRequestId);
+          return resolve({ success: false, cancelled: true, message: 'Download cancelled.' });
+        }
+        publishDownloadProgress(safeRequestId, { status: 'error', message: 'Download failed.' });
+        removeDownloadJob(safeRequestId);
 
         return resolve({
           success: false,
@@ -491,6 +605,9 @@ async function downloadMediaService({
             files
           );
 
+          cleanupDownloadFiles(`${safeName}-${safeRequestId}`);
+          publishDownloadProgress(safeRequestId, { status: 'error', message: 'The downloaded file could not be found.' });
+          removeDownloadJob(safeRequestId);
           return resolve({
             success: false,
             message:
@@ -507,6 +624,9 @@ async function downloadMediaService({
           await fsPromises.stat(finalPath);
 
         if (!stat.isFile() || stat.size === 0) {
+          await cleanupDownloadFiles(`${safeName}-${safeRequestId}`);
+          publishDownloadProgress(safeRequestId, { status: 'error', message: 'The downloaded file is empty or invalid.' });
+          removeDownloadJob(safeRequestId);
           return resolve({
             success: false,
             message:
@@ -526,6 +646,8 @@ async function downloadMediaService({
           contentType = 'video/webm';
         } else if (ext === '.mkv') {
           contentType = 'video/x-matroska';
+        } else if (ext === '.mp3') {
+          contentType = 'audio/mpeg';
         }
 
         resolve({
@@ -534,12 +656,17 @@ async function downloadMediaService({
           filename: downloaded,
           contentType
         });
+        publishDownloadProgress(safeRequestId, { status: 'ready', percent: 100, totalBytes: stat.size, downloadedBytes: stat.size });
+        removeDownloadJob(safeRequestId);
       } catch (error) {
         console.error(
           'Output file error:',
           error
         );
 
+        await cleanupDownloadFiles(`${safeName}-${safeRequestId}`);
+        publishDownloadProgress(safeRequestId, { status: 'error', message: 'The downloaded file could not be prepared.' });
+        removeDownloadJob(safeRequestId);
         resolve({
           success: false,
           message: error.message
@@ -623,5 +750,7 @@ function cleanYtDlpError(error) {
 
 module.exports = {
   analyzeMediaService,
-  downloadMediaService
+  downloadMediaService,
+  subscribeDownloadProgress,
+  cancelDownload
 };

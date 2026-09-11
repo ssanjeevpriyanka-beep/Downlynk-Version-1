@@ -1,7 +1,9 @@
 const state = {
   selectedFormat: null,
   currentMedia: null,
+  downloadType: 'video',
   downloadController: null,
+  progressSource: null,
   resetVersion: 0
 };
 
@@ -177,6 +179,7 @@ function renderMediaPreview(data) {
   const downloadButton = document.getElementById('downloadButton');
 
   state.currentMedia = data;
+  state.downloadType = 'video';
   downloadButton.classList.remove('d-none');
   title.textContent = data.title;
   sub.textContent = `${data.uploader} · ${Number(data.viewCount || 0).toLocaleString()} views`;
@@ -185,35 +188,56 @@ function renderMediaPreview(data) {
   avatar.textContent = initialOf(data.uploader);
   durationBadge.textContent = data.duration;
 
-  if (!data.formats || data.formats.length === 0) {
-    qualities.innerHTML = '<p class="quality-sub">No compatible video qualities were detected.</p>';
-    qualityNote.textContent = 'Try another link';
-    qualityBadge.textContent = 'N/A';
-  } else {
-    state.selectedFormat = data.formats[0];
-    qualityBadge.textContent = data.formats[0].resolution;
-
-    qualities.innerHTML = data.formats.map((format, index) => `
-      <button type="button" class="format-chip ${index === 0 ? 'active' : ''}" data-format-id="${format.id}">
-        <strong>${format.resolution}</strong>${format.ext.toUpperCase()}
-      </button>
-    `).join('');
-
-    document.querySelectorAll('.format-chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.format-chip').forEach((item) => item.classList.remove('active'));
-        chip.classList.add('active');
-        state.selectedFormat = data.formats.find((format) => format.id === chip.dataset.formatId) || data.formats[0];
-        qualityNote.textContent = `${state.selectedFormat.resolution} selected`;
-        qualityBadge.textContent = state.selectedFormat.resolution;
-      });
-    });
-
-    qualityNote.textContent = `${state.selectedFormat.resolution} selected`;
-  }
+  renderQualityOptions();
 
   previewEmpty.classList.add('d-none');
   previewCard.classList.remove('d-none');
+}
+
+function renderQualityOptions() {
+  const data = state.currentMedia;
+  const formats = state.downloadType === 'audio' ? (data.audioFormats || []) : (data.formats || []);
+  const qualities = document.getElementById('qualitiesList');
+  const qualityNote = document.getElementById('qualityNote');
+  const qualityBadge = document.getElementById('qualityBadge');
+  const qualityHeading = document.getElementById('qualityHeading');
+
+  qualityHeading.textContent = state.downloadType === 'audio' ? 'Audio Quality' : 'Video Quality';
+  if (!formats.length) {
+    state.selectedFormat = null;
+    qualities.innerHTML = `<p class="quality-sub">No compatible ${state.downloadType} qualities were detected.</p>`;
+    qualityNote.textContent = 'Try another link';
+    qualityBadge.textContent = 'N/A';
+    return;
+  }
+
+  state.selectedFormat = formats[0];
+  qualityBadge.textContent = state.downloadType === 'audio'
+    ? `${Math.round(state.selectedFormat.abr)}k`
+    : state.selectedFormat.resolution;
+  qualities.innerHTML = formats.map((format, index) => {
+    const label = state.downloadType === 'audio'
+      ? `${Math.round(format.abr)} kbps`
+      : format.resolution;
+    const ext = state.downloadType === 'audio' ? 'MP3' : format.ext.toUpperCase();
+    return `<button type="button" class="format-chip ${index === 0 ? 'active' : ''}" data-format-id="${format.id}">
+      <strong>${label}</strong>${ext}
+    </button>`;
+  }).join('');
+
+  qualities.querySelectorAll('.format-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      qualities.querySelectorAll('.format-chip').forEach((item) => item.classList.remove('active'));
+      chip.classList.add('active');
+      state.selectedFormat = formats.find((format) => format.id === chip.dataset.formatId) || formats[0];
+      const label = state.downloadType === 'audio'
+        ? `${Math.round(state.selectedFormat.abr)} kbps`
+        : state.selectedFormat.resolution;
+      qualityNote.textContent = `${label} selected`;
+      qualityBadge.textContent = state.downloadType === 'audio' ? `${Math.round(state.selectedFormat.abr)}k` : state.selectedFormat.resolution;
+    });
+  });
+  qualityNote.textContent = `${state.downloadType === 'audio' ? `${Math.round(state.selectedFormat.abr)} kbps` : state.selectedFormat.resolution} selected`;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -264,22 +288,42 @@ async function downloadMedia() {
   const progressBar = document.getElementById('downloadProgressBar');
   const progressText = document.getElementById('downloadProgressText');
   const downloadButton = document.getElementById('downloadButton');
+  const cancelButton = document.getElementById('cancelDownloadButton');
+  const progressDetails = document.getElementById('downloadProgressDetails');
   const controller = new AbortController();
+  const requestId = window.crypto && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `download-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const requestVersion = state.resetVersion;
   state.downloadController = controller;
-  progressBar.style.width = '15%';
+  state.progressSource = new EventSource(`${CONFIG.API_BASE_URL}/api/download-progress/${requestId}`);
+  state.progressSource.onmessage = (event) => {
+    const progress = JSON.parse(event.data);
+    if (progress.status === 'downloading') {
+      updateDownloadProgress(progressBar, progressText, progressDetails, progress);
+    }
+  };
+  state.progressSource.onerror = () => {};
+  progressBar.style.width = '0%';
   progressText.textContent = 'Preparing download…';
+  progressDetails.classList.remove('d-none');
+  progressDetails.textContent = 'Waiting for download data…';
   downloadButton.disabled = true;
+  cancelButton.classList.remove('d-none');
 
   try {
     const response = await fetch(`${CONFIG.API_BASE_URL}/api/download`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
       signal: controller.signal,
       body: JSON.stringify({
         url: state.currentMedia.url,
         formatId: state.selectedFormat.id,
-        qualityLabel: state.selectedFormat.label,
-        hasAudio: state.selectedFormat.hasAudio
+        qualityLabel: state.downloadType === 'audio'
+          ? `${Math.round(state.selectedFormat.abr)} kbps`
+          : state.selectedFormat.label,
+        hasAudio: state.selectedFormat.hasAudio,
+        type: state.downloadType
       })
     });
 
@@ -299,10 +343,31 @@ async function downloadMedia() {
       throw new Error(msg);
     }
 
-    progressBar.style.width = '65%';
-    progressText.textContent = 'Streaming file…';
+    if (!response.body) {
+      throw new Error('The server returned an invalid download response.');
+    }
 
-    const blob = await response.blob();
+    progressText.textContent = 'Streaming file…';
+    const totalBytes = Number(response.headers.get('content-length')) || 0;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let downloadedBytes = 0;
+    const startedAt = performance.now();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      downloadedBytes += value.byteLength;
+      updateDownloadProgress(progressBar, progressText, progressDetails, {
+        status: 'downloading',
+        percent: totalBytes ? downloadedBytes / totalBytes * 100 : null,
+        downloadedBytes,
+        totalBytes,
+        speedBytes: downloadedBytes / ((performance.now() - startedAt) / 1000),
+        etaSeconds: totalBytes && downloadedBytes ? (totalBytes - downloadedBytes) / (downloadedBytes / ((performance.now() - startedAt) / 1000)) : null
+      });
+    }
+    const blob = new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' });
     const disposition = response.headers.get('content-disposition') || '';
     const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|"?)([^";]+)"?/i);
     const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `${state.currentMedia.title || 'download'}.${state.selectedFormat.ext || 'mp4'}`;
@@ -317,18 +382,68 @@ async function downloadMedia() {
 
     progressBar.style.width = '100%';
     progressText.textContent = 'Download complete';
+    progressDetails.textContent = totalBytes ? `100% • ${formatBytes(totalBytes)}` : '100%';
     showToast('Download started. Your browser is saving the file.', 'success');
   } catch (error) {
-    if (controller.signal.aborted) return;
+    if (requestVersion !== state.resetVersion) return;
+    if (controller.signal.aborted) {
+      progressBar.style.width = '0%';
+      progressText.textContent = 'Download cancelled.';
+      progressDetails.textContent = '';
+      return;
+    }
     progressBar.style.width = '0%';
     progressText.textContent = 'Download failed';
+    progressDetails.textContent = '';
     showToast(error.message, 'error');
   } finally {
     if (state.downloadController === controller) {
       state.downloadController = null;
+      if (state.progressSource) {
+        state.progressSource.close();
+        state.progressSource = null;
+      }
+      cancelButton.classList.add('d-none');
       downloadButton.disabled = false;
     }
   }
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+function formatEta(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return 'calculating…';
+  const rounded = Math.ceil(seconds);
+  return rounded >= 60 ? `${Math.floor(rounded / 60)}m ${rounded % 60}s` : `${rounded}s`;
+}
+
+function updateDownloadProgress(progressBar, progressText, details, progress) {
+  const percent = Number.isFinite(progress.percent) ? Math.round(progress.percent) : null;
+  if (percent !== null) {
+    progressBar.style.width = `${percent}%`;
+    progressBar.parentElement.setAttribute('aria-valuenow', String(percent));
+  }
+  progressText.textContent = percent === null ? 'Downloading…' : `Downloading… ${percent}%`;
+  const parts = [];
+  if (percent !== null) parts.push(`${percent}%`);
+  if (progress.downloadedBytes && progress.totalBytes) {
+    parts.push(`${formatBytes(progress.downloadedBytes)} / ${formatBytes(progress.totalBytes)}`);
+  }
+  if (progress.speedBytes) parts.push(`${formatBytes(progress.speedBytes)}/s`);
+  if (progress.etaSeconds !== null && progress.etaSeconds !== undefined) {
+    parts.push(`ETA ${formatEta(progress.etaSeconds)}`);
+  }
+  details.textContent = parts.join(' • ') || 'Download in progress…';
+}
+
+function cancelDownload() {
+  if (!state.downloadController) return;
+  state.downloadController.abort();
 }
 
 function clearFrontendState() {
@@ -337,9 +452,14 @@ function clearFrontendState() {
     state.downloadController.abort();
     state.downloadController = null;
   }
+  if (state.progressSource) {
+    state.progressSource.close();
+    state.progressSource = null;
+  }
 
   state.currentMedia = null;
   state.selectedFormat = null;
+  state.downloadType = 'video';
 
   document.getElementById('urlInput').value = '';
   document.getElementById('previewCard').classList.add('d-none');
@@ -354,10 +474,16 @@ function clearFrontendState() {
   document.getElementById('durationBadge').textContent = '00:00';
   document.getElementById('qualitiesList').replaceChildren();
   document.getElementById('qualityNote').textContent = 'Select a quality';
+  document.getElementById('qualityHeading').textContent = 'Video Quality';
+  document.getElementById('videoTypeButton').classList.add('active');
+  document.getElementById('audioTypeButton').classList.remove('active');
   document.getElementById('downloadButton').classList.add('d-none');
   document.getElementById('downloadButton').disabled = false;
+  document.getElementById('cancelDownloadButton').classList.add('d-none');
   document.getElementById('downloadProgressBar').style.width = '0%';
   document.getElementById('downloadProgressText').textContent = 'Ready to stream';
+  document.getElementById('downloadProgressDetails').textContent = '';
+  document.getElementById('downloadProgressDetails').classList.add('d-none');
   document.getElementById('toastContainer').replaceChildren();
   renderDetection('');
   setBusy(false);
@@ -383,6 +509,17 @@ urlInput.addEventListener('keydown', (event) => {
 document.getElementById('analyzeButton').addEventListener('click', analyzeUrl);
 document.getElementById('clearButton').addEventListener('click', clearFrontendState);
 document.getElementById('downloadButton').addEventListener('click', downloadMedia);
+document.querySelectorAll('[data-download-type]').forEach((button) => {
+  button.addEventListener('click', () => {
+    if (!state.currentMedia || state.downloadController) return;
+    state.downloadType = button.dataset.downloadType;
+    document.querySelectorAll('[data-download-type]').forEach((item) => {
+      item.classList.toggle('active', item === button);
+    });
+    renderQualityOptions();
+  });
+});
+document.getElementById('cancelDownloadButton').addEventListener('click', cancelDownload);
 document.getElementById('pasteButton').addEventListener('click', async () => {
   try {
     const text = await navigator.clipboard.readText();

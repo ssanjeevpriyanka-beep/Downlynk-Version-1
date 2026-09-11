@@ -16,13 +16,21 @@ function validateAnalyzeBody(req, res, next) {
 }
 
 function validateDownloadBody(req, res, next) {
-  const { url, formatId } = req.body || {};
+  const { url, formatId, type = 'video' } = req.body || {};
   if (!url || typeof url !== 'string' || !url.trim()) {
     return res.status(400).json({ success: false, message: 'A media URL is required.' });
   }
 
   if (!formatId || typeof formatId !== 'string' || !formatId.trim()) {
     return res.status(400).json({ success: false, message: 'A media quality is required.' });
+  }
+
+  if (type !== 'video' && type !== 'audio') {
+    return res.status(400).json({ success: false, message: 'The download type is invalid.' });
+  }
+
+  if (!/^[a-zA-Z0-9_.-]+$/.test(formatId)) {
+    return res.status(400).json({ success: false, message: 'The selected quality is invalid.' });
   }
 
   const normalizedUrl = url.trim();
@@ -32,6 +40,7 @@ function validateDownloadBody(req, res, next) {
 
   req.body.url = normalizedUrl;
   req.body.qualityLabel = sanitizeText(req.body.qualityLabel || 'download');
+  req.body.type = type;
   next();
 }
 

@@ -115,8 +115,18 @@
             </div>
           </div>
 
+          <div class="download-type-head">Download Type</div>
+          <div class="download-type-row" role="group" aria-label="Download type">
+            <button id="videoTypeButton" class="type-chip active" type="button" data-download-type="video">
+              <i class="bi bi-film"></i><span>Video</span>
+            </button>
+            <button id="audioTypeButton" class="type-chip" type="button" data-download-type="audio">
+              <i class="bi bi-music-note-beamed"></i><span>Audio</span>
+            </button>
+          </div>
+
           <div class="quality-head">
-            <span>Available qualities</span>
+            <span id="qualityHeading">Video Quality</span>
             <span id="qualityNote" class="quality-note">Select a quality</span>
           </div>
           <div id="qualitiesList" class="format-row"></div>
@@ -126,8 +136,12 @@
               <div id="downloadProgressBar" class="meter-fill" style="width: 0%"></div>
             </div>
             <p id="downloadProgressText" class="meter-text">Ready to stream</p>
+            <p id="downloadProgressDetails" class="download-progress-details d-none"></p>
             <button id="downloadButton" class="btn-download">
               <i class="bi bi-cloud-arrow-down-fill"></i><span>Download Now</span>
+            </button>
+            <button id="cancelDownloadButton" class="btn-cancel d-none" type="button">
+              <i class="bi bi-x-circle"></i><span>Cancel Download</span>
             </button>
             <p class="secure-line">Scanned &amp; secure · no ads, no redirects</p>
           </div>
