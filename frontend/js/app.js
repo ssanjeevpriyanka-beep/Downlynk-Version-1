@@ -1,6 +1,8 @@
 const state = {
   selectedFormat: null,
-  currentMedia: null
+  currentMedia: null,
+  downloadController: null,
+  resetVersion: 0
 };
 
 /* ---------------------------------------------------------------------- */
@@ -172,8 +174,10 @@ function renderMediaPreview(data) {
   const durationBadge = document.getElementById('durationBadge');
   const qualities = document.getElementById('qualitiesList');
   const qualityNote = document.getElementById('qualityNote');
+  const downloadButton = document.getElementById('downloadButton');
 
   state.currentMedia = data;
+  downloadButton.classList.remove('d-none');
   title.textContent = data.title;
   sub.textContent = `${data.uploader} · ${Number(data.viewCount || 0).toLocaleString()} views`;
   thumbnail.src = data.thumbnail || '/images/placeholder.svg';
@@ -226,6 +230,7 @@ async function analyzeUrl() {
     return;
   }
 
+  const requestVersion = state.resetVersion;
   setBusy(true);
   try {
     const response = await fetch(`${CONFIG.API_BASE_URL}/api/analyze`, {
@@ -239,9 +244,11 @@ async function analyzeUrl() {
       throw new Error(result.message || 'Analysis failed.');
     }
 
+    if (requestVersion !== state.resetVersion) return;
     renderMediaPreview(result.data);
     showToast('Media analyzed successfully.', 'success');
   } catch (error) {
+    if (requestVersion !== state.resetVersion) return;
     showToast(error.message, 'error');
   } finally {
     setBusy(false);
@@ -257,6 +264,8 @@ async function downloadMedia() {
   const progressBar = document.getElementById('downloadProgressBar');
   const progressText = document.getElementById('downloadProgressText');
   const downloadButton = document.getElementById('downloadButton');
+  const controller = new AbortController();
+  state.downloadController = controller;
   progressBar.style.width = '15%';
   progressText.textContent = 'Preparing download…';
   downloadButton.disabled = true;
@@ -265,6 +274,7 @@ async function downloadMedia() {
     const response = await fetch(`${CONFIG.API_BASE_URL}/api/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         url: state.currentMedia.url,
         formatId: state.selectedFormat.id,
@@ -309,12 +319,48 @@ async function downloadMedia() {
     progressText.textContent = 'Download complete';
     showToast('Download started. Your browser is saving the file.', 'success');
   } catch (error) {
+    if (controller.signal.aborted) return;
     progressBar.style.width = '0%';
     progressText.textContent = 'Download failed';
     showToast(error.message, 'error');
   } finally {
-    downloadButton.disabled = false;
+    if (state.downloadController === controller) {
+      state.downloadController = null;
+      downloadButton.disabled = false;
+    }
   }
+}
+
+function clearFrontendState() {
+  state.resetVersion += 1;
+  if (state.downloadController) {
+    state.downloadController.abort();
+    state.downloadController = null;
+  }
+
+  state.currentMedia = null;
+  state.selectedFormat = null;
+
+  document.getElementById('urlInput').value = '';
+  document.getElementById('previewCard').classList.add('d-none');
+  document.getElementById('previewEmpty').classList.remove('d-none');
+  document.getElementById('scanIndicator').classList.add('d-none');
+  document.getElementById('mediaThumbnail').src = '/images/placeholder.svg';
+  document.getElementById('mediaThumbnail').alt = 'Media preview';
+  document.getElementById('mediaTitle').textContent = 'Media title';
+  document.getElementById('mediaSub').textContent = 'Uploader · views';
+  document.getElementById('channelAvatar').textContent = '';
+  document.getElementById('qualityBadge').textContent = 'HD';
+  document.getElementById('durationBadge').textContent = '00:00';
+  document.getElementById('qualitiesList').replaceChildren();
+  document.getElementById('qualityNote').textContent = 'Select a quality';
+  document.getElementById('downloadButton').classList.add('d-none');
+  document.getElementById('downloadButton').disabled = false;
+  document.getElementById('downloadProgressBar').style.width = '0%';
+  document.getElementById('downloadProgressText').textContent = 'Ready to stream';
+  document.getElementById('toastContainer').replaceChildren();
+  renderDetection('');
+  setBusy(false);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -335,6 +381,7 @@ urlInput.addEventListener('keydown', (event) => {
 });
 
 document.getElementById('analyzeButton').addEventListener('click', analyzeUrl);
+document.getElementById('clearButton').addEventListener('click', clearFrontendState);
 document.getElementById('downloadButton').addEventListener('click', downloadMedia);
 document.getElementById('pasteButton').addEventListener('click', async () => {
   try {

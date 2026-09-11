@@ -201,6 +201,8 @@ html[data-theme='light'] .theme-toggle-knob { transform: translateX(calc(3.4rem 
 }
 .btn-fetch:hover { background: var(--coral-dim); }
 
+.btn-clear:hover { background: var(--border); }
+
 .drop-hint {
   display: none; align-items: center; gap: 0.4rem; width: 100%;
   margin: 0.3rem 0.2rem 0; font-size: 0.78rem; color: var(--coral); font-family: 'JetBrains Mono', monospace;
